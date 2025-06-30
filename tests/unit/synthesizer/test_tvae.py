@@ -42,3 +42,21 @@ class TestTVAE:
         assert iterator_mock.set_description.call_args_list[0] == call('Loss: 0.000')
         assert iterator_mock.set_description.call_args_list[1] == call('Loss: 1.235')
         assert iterator_mock.set_description.call_count == 2
+
+    def test_encode_shapes(self):
+        """``encode`` should return tensors with the expected shapes."""
+        data = pd.DataFrame({'a': range(6), 'b': range(6, 12)})
+        synth = TVAE(
+            embedding_dim=5,
+            compress_dims=(10,),
+            decompress_dims=(10,),
+            epochs=1,
+            batch_size=2,
+        )
+
+        synth.fit(data)
+        mu, logvar, std = synth.encode(data)
+
+        assert mu.shape == (len(data), synth.embedding_dim)
+        assert logvar.shape == (len(data), synth.embedding_dim)
+        assert std.shape == (len(data), synth.embedding_dim)

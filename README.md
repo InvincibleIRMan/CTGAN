@@ -103,6 +103,9 @@ ctgan.fit(real_data, discrete_columns)
 
 # Create synthetic data
 synthetic_data = ctgan.sample(1000)
+
+# Encode real data into the latent space
+mu, logvar, std = ctgan.encode(real_data.head())
 ```
 
 *For more information about the dataset see:
