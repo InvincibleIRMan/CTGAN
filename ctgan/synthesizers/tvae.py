@@ -136,6 +136,7 @@ class TVAE(BaseSynthesizer):
             device = 'cuda'
 
         self._device = torch.device(device)
+        self.encoder = None
 
     @random_state
     def fit(self, train_data, discrete_columns=()):
@@ -157,10 +158,11 @@ class TVAE(BaseSynthesizer):
         loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=False)
 
         data_dim = self.transformer.output_dimensions
-        encoder = Encoder(data_dim, self.compress_dims, self.embedding_dim).to(self._device)
+        self.encoder = Encoder(data_dim, self.compress_dims, self.embedding_dim).to(self._device)
         self.decoder = Decoder(self.embedding_dim, self.decompress_dims, data_dim).to(self._device)
         optimizerAE = Adam(
-            list(encoder.parameters()) + list(self.decoder.parameters()), weight_decay=self.l2scale
+            list(self.encoder.parameters()) + list(self.decoder.parameters()),
+            weight_decay=self.l2scale,
         )
 
         self.loss_values = pd.DataFrame(columns=['Epoch', 'Batch', 'Loss'])
@@ -175,7 +177,7 @@ class TVAE(BaseSynthesizer):
             for id_, data in enumerate(loader):
                 optimizerAE.zero_grad()
                 real = data[0].to(self._device)
-                mu, std, logvar = encoder(real)
+                mu, std, logvar = self.encoder(real)
                 eps = torch.randn_like(std)
                 emb = eps * std + mu
                 rec, sigmas = self.decoder(emb)
@@ -240,7 +242,34 @@ class TVAE(BaseSynthesizer):
         data = data[:samples]
         return self.transformer.inverse_transform(data, sigmas.detach().cpu().numpy())
 
+    def encode(self, data):
+        """Encode ``data`` into the latent space using the trained encoder.
+
+        The input data is first transformed using ``self.transformer`` and then
+        passed through ``self.encoder``.
+
+        Args:
+            data (numpy.ndarray or pandas.DataFrame):
+                Data to encode.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                The ``mu``, ``logvar`` and ``std`` tensors produced by the encoder.
+        """
+        if self.encoder is None:
+            raise ValueError('The model has not been fitted yet.')
+
+        self.encoder.eval()
+        data = self.transformer.transform(data)
+        tensor = torch.from_numpy(data.astype('float32')).to(self._device)
+        with torch.no_grad():
+            mu, std, logvar = self.encoder(tensor)
+        return mu, logvar, std
+
     def set_device(self, device):
         """Set the `device` to be used ('GPU' or 'CPU)."""
         self._device = device
-        self.decoder.to(self._device)
+        if hasattr(self, 'decoder') and self.decoder is not None:
+            self.decoder.to(self._device)
+        if hasattr(self, 'encoder') and self.encoder is not None:
+            self.encoder.to(self._device)
